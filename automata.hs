@@ -1,28 +1,52 @@
 import System.IO
 import System.Environment
 import qualified Data.Map as Map
+import qualified Data.Set as Set
+import qualified Data.Char as Char
 
 data Automata = Automata { states :: [Int],
                            initialState :: Int,
                            acceptStates :: [Int],
-                           transitions :: [Map.Map Char Int]
+                           transitions :: Map.Map Int (Map.Map Char Int),
+                           alphabet :: Set.Set Char
                          } deriving (Show)
 
-createAutomata :: String -> String -> String -> Automata
-createAutomata states' initialState' acceptStates' =
+completeState ::  Set.Set Char -> Int -> Map.Map Char Int -> Map.Map Char Int
+completeState alphabet sinkState state = Map.union state (Map.fromList([(x, sinkState) | x <- Set.toList(alphabet), not $ elem x (Map.keys state)]))
+
+completeAutomata :: Automata -> Automata
+completeAutomata automata = Automata { states = (states automata) ++ [sinkState],
+                                       initialState = initialState automata,
+                                       acceptStates = acceptStates automata,
+                                       transitions = Map.map (completeState (alphabet automata) sinkState) (transitions automata),
+                                       alphabet = alphabet automata}
+  where sinkState = maximum (states automata) + 1
+
+getAlphabet :: [String] -> Set.Set Char -> Set.Set Char
+getAlphabet [] alphabet = alphabet
+getAlphabet (x:xs) alphabet = getAlphabet xs (Set.insert transitionChar alphabet)
+  where transitionChar = x !! 2
+
+getTransitions :: [String] -> Map.Map Int (Map.Map Char Int) -> Map.Map Int (Map.Map Char Int)
+getTransitions [] transitions = transitions
+getTransitions (x:xs) transitions = getTransitions xs (Map.insertWith Map.union startState transition transitions)
+  where startState = Char.digitToInt $ head x :: Int
+        transitionChar = x !! 2
+        finalState = Char.digitToInt $ last x :: Int
+        transition = Map.singleton transitionChar finalState
+
+createAutomata :: [String] -> Automata
+createAutomata (states':initialState':acceptStates':transitions') =
         Automata { states = read $ '[':states' ++ [']'] :: [Int],
                    initialState = read initialState' :: Int,
                    acceptStates = read $ '[':acceptStates' ++ [']'] :: [Int],
-                   transitions = [Map.fromList([('a', 0)])]}
+                   transitions = getTransitions transitions' Map.empty,
+                   alphabet = getAlphabet transitions' Set.empty}
 
 load :: String -> IO ()
 load path = do
-            handle <- openFile path ReadMode
-            states' <- hGetLine handle
-            initialState' <- hGetLine handle
-            acceptStates' <- hGetLine handle
-            hClose handle
-            print $ createAutomata states' initialState' acceptStates'
+            content <- readFile path
+            print $ completeAutomata (createAutomata (lines content))
 
 
 parseArgs :: [String] -> (String -> IO ())
