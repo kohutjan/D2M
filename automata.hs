@@ -3,6 +3,7 @@ import System.Environment
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Char as Char
+import qualified Data.List as List
 
 
 data Automata = Automata { states :: [Int],
@@ -12,22 +13,36 @@ data Automata = Automata { states :: [Int],
                            alphabet :: Set.Set Char
                           } deriving (Show)
 
+unique :: [Int] -> [Int]
+unique l = Set.toList $ Set.fromList l
 
-getStateId :: Int -> Automata -> [Int] -> [Int]
-getStateId state automata eqClasses = [eqClasses !! x | x -> (Map.elems transition)]
-  where transitions' = transitions automata
-        (Just transition) = Map.lookup state transitions
 
+getStateId :: Int -> Map.Map Int (Map.Map Char Int) -> [Int] -> [Int]
+getStateId state transitions eqClasses = [eqClasses !! x | x <- (Map.elems transition)]
+  where (Just transition) = Map.lookup state transitions
+
+
+getStatesMap :: [Int] -> Map.Map Int (Map.Map Char Int) -> [Int] -> Map.Map [Int] [Int]
+getStatesMap [] transitions eqClasses = Map.empty
+getStatesMap (x:xs) transitions eqClasses = Map.insertWith (++) stateId [x] (getStatesMap xs transitions eqClasses)
+  where stateId = getStateId x transitions eqClasses
 
 
 initEqClasses :: [Int] -> [Int] -> [Int]
-getEqClasses states acceptStates = [if elem x acceptStates then 1 else 0 | x <- states]
+initEqClasses states acceptStates = [if elem x acceptStates then 1 else 0 | x <- states]
+
+
+getEqClass :: Map.Map [Int] [Int] -> Int -> Int
+getEqClass statesMap state = eqClass
+  where eqStates = Map.elems statesMap
+        (Just eqClass) = List.elemIndex (head [x | x <- eqStates, elem state x]) eqStates
 
 
 getNextEqClasses :: Automata -> [Int] -> [Int]
-getNextEqClasses automata eqClasses =
-  where transitions' = transitions automata
-
+getNextEqClasses automata eqClasses = map (getEqClass statesMap) states'
+  where states' = states automata
+        transitions' = transitions automata
+        statesMap = getStatesMap states' transitions' eqClasses
 
 
 getFinalEqClasses :: Automata -> [Int] -> [Int]
@@ -36,8 +51,36 @@ getFinalEqClasses automata eqClasses
   | otherwise = getFinalEqClasses automata nextEqClasses
   where nextEqClasses = getNextEqClasses automata eqClasses
 
+
+getFinalStates :: [Int] -> [Int]
+getFinalStates eqClasses = unique eqClasses
+
+
+getFinalInitialState :: Int -> [Int] -> Int
+getFinalInitialState initialState eqClasses = eqClasses !! initialState
+
+
+getFinalAcceptStates :: [Int] -> [Int] -> [Int]
+getFinalAcceptStates acceptStates eqClasses = unique [eqClasses !! x | x <- acceptStates]
+
+
+getFinalTransitions :: Map.Map Int (Map.Map Char Int) -> [Int] -> [Int] -> Map.Map Int (Map.Map Char Int)
+getFinalTransitions transitions [] eqClasses = Map.empty
+getFinalTransitions transitions (x:xs) eqClasses = Map.insert x transition' (getFinalTransitions transitions xs eqClasses)
+  where (Just transition) = Map.lookup x transitions
+        transition' = Map.fromList [(fst x, eqClasses !! (snd x)) | x <- Map.toList transition]
+
+
 createMinimizeAutomata :: Automata -> [Int] -> Automata
-createMinimizeAutomata automata undisRelation =
+createMinimizeAutomata automata eqClasses = Automata { states = finalStates,
+                                                       initialState = finalInitialState,
+                                                       acceptStates = finalAcceptStates,
+                                                       transitions = finalTransitios,
+                                                       alphabet = alphabet automata}
+  where finalStates = getFinalStates eqClasses
+        finalInitialState = getFinalInitialState (initialState automata) eqClasses
+        finalAcceptStates = getFinalAcceptStates (acceptStates automata) eqClasses
+        finalTransitios = getFinalTransitions (transitions automata) finalStates eqClasses
 
 
 minimizeAutomata :: Automata -> Automata
@@ -45,6 +88,7 @@ minimizeAutomata automata = createMinimizeAutomata automata (getFinalEqClasses a
   where states' = states automata
         acceptStates' = acceptStates automata
         eqClasses = initEqClasses states' acceptStates'
+
 
 completeState ::  Set.Set Char -> Int -> Map.Map Char Int -> Map.Map Char Int
 completeState alphabet sinkState state = Map.union state (Map.fromList([(x, sinkState) | x <- Set.toList(alphabet), not $ elem x (Map.keys state)]))
@@ -90,7 +134,7 @@ createAutomata (states':initialState':acceptStates':transitions') =
 load :: String -> IO ()
 load path = do
             content <- readFile path
-            print $ completeAutomata (createAutomata (lines content))
+            print $ minimizeAutomata (completeAutomata (createAutomata (lines content)))
 
 
 parseArgs :: [String] -> (String -> IO ())
