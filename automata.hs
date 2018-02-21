@@ -28,8 +28,8 @@ getStatesMap (x:xs) transitions eqClasses = Map.insertWith (++) stateId [x] (get
   where stateId = getStateId x transitions eqClasses
 
 
-initEqClasses :: [Int] -> [Int] -> [Int]
-initEqClasses states acceptStates = [if elem x acceptStates then 1 else 0 | x <- states]
+initEqClasses :: [Int] -> [Int] -> Map.Map Int Int
+initEqClasses states acceptStates = Map.fromList([if elem x acceptStates then (x, 1) else (x, 0) | x <- states])
 
 
 getEqClass :: Map.Map [Int] [Int] -> Int -> Int
@@ -38,14 +38,14 @@ getEqClass statesMap state = eqClass
         (Just eqClass) = List.elemIndex (head [x | x <- eqStates, elem state x]) eqStates
 
 
-getNextEqClasses :: Automata -> [Int] -> [Int]
+getNextEqClasses :: Automata -> Map.Map Int Int -> [Int]
 getNextEqClasses automata eqClasses = map (getEqClass statesMap) states'
   where states' = states automata
         transitions' = transitions automata
         statesMap = getStatesMap states' transitions' eqClasses
 
 
-getFinalEqClasses :: Automata -> [Int] -> [Int]
+getFinalEqClasses :: Automata -> Map.Map Int Int -> Map.Map Int Int
 getFinalEqClasses automata eqClasses
   | nextEqClasses == eqClasses = eqClasses
   | otherwise = getFinalEqClasses automata nextEqClasses
@@ -90,18 +90,37 @@ minimizeAutomata automata = createMinimizeAutomata automata (getFinalEqClasses a
         eqClasses = initEqClasses states' acceptStates'
 
 
-completeState ::  Set.Set Char -> Int -> Map.Map Char Int -> Map.Map Char Int
-completeState alphabet sinkState state = Map.union state (Map.fromList([(x, sinkState) | x <- Set.toList(alphabet), not $ elem x (Map.keys state)]))
+completeTransitions :: [Int] -> Map.Map Int (Map.Map Char Int) -> Map.Map Int (Map.Map Char Int)
+completeTransitions [] transitions = transitions
+completeTransitions (x:xs) transitions = completeTransitions xs (Map.insert x Map.empty transitions)
+
+
+completeStateTransition ::  Set.Set Char -> Int -> Map.Map Char Int -> Map.Map Char Int
+completeStateTransition alphabet sinkState state = Map.union state (Map.fromList([(x, sinkState) | x <- Set.toList(alphabet), not $ elem x (Map.keys state)]))
 
 
 completeAutomata :: Automata -> Automata
 completeAutomata automata = Automata { states = (states automata) ++ [sinkState],
                                        initialState = initialState automata,
                                        acceptStates = acceptStates automata,
-                                       transitions = Map.map (completeState (alphabet automata) sinkState) (transitions automata),
+                                       transitions = Map.insert sinkState sinkStateTransition completedStatesTransitions,
                                        alphabet = alphabet automata}
   where sinkState = maximum (states automata) + 1
+        sinkStateTransition = Map.fromList([(x, sinkState) | x <- Set.toList(alphabet automata)])
+        states' = states automata
+        transitions' = transitions automata
+        missingStates = [x | x <- states', not $ elem x (Map.keys transitions')]
+        completedTransitions = completeTransitions missingStates transitions'
+        completedStatesTransitions = Map.map (completeStateTransition (alphabet automata) sinkState) completedTransitions
 
+
+isComplete :: Automata -> Bool
+isComplete automata = definedStates && (not $ elem False [x == alphabetLength | x <- transitionsSize])
+  where alphabetLength = length (alphabet automata)
+        transitions' = transitions automata
+        transitionsSize = map Map.size (Map.elems transitions')
+        states' = states automata
+        definedStates = (Map.size transitions') == (length states')
 
 getStates :: String -> [Int]
 getStates states' = read $ '[':states' ++ [']'] :: [Int]
@@ -134,8 +153,8 @@ createAutomata (states':initialState':acceptStates':transitions') =
 load :: String -> IO ()
 load path = do
             content <- readFile path
-            print $ minimizeAutomata (completeAutomata (createAutomata (lines content)))
-
+            let automata = createAutomata (lines content)
+            print $ minimizeAutomata (if isComplete automata then automata else completeAutomata automata)
 
 parseArgs :: [String] -> (String -> IO ())
 parseArgs args
