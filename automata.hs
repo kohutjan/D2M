@@ -37,7 +37,7 @@ initEqClasses states acceptStates = Map.fromList([if elem x acceptStates then (x
 getEqClass :: Map.Map [Int] [Int] -> Int -> Int
 getEqClass statesMap state = eqClass
   where eqStates = Map.elems statesMap
-        (Just eqClass) = List.elemIndex (head [x | x <- eqStates, elem state x]) eqStates
+        eqClass = minimum (head [x | x <- eqStates, elem state x])
 
 
 getNextEqClasses :: Automata -> Map.Map Int Int -> Map.Map Int Int
