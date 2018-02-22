@@ -4,6 +4,7 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Char as Char
 import qualified Data.List as List
+import qualified Data.Maybe as Maybe
 
 
 data Automata = Automata { states :: [Int],
@@ -17,12 +18,13 @@ unique :: [Int] -> [Int]
 unique l = Set.toList $ Set.fromList l
 
 
-getStateId :: Int -> Map.Map Int (Map.Map Char Int) -> [Int] -> [Int]
-getStateId state transitions eqClasses = [eqClasses !! x | x <- (Map.elems transition)]
+getStateId :: Int -> Map.Map Int (Map.Map Char Int) -> Map.Map Int Int -> [Int]
+getStateId state transitions eqClasses = stateEq : Maybe.catMaybes [Map.lookup x eqClasses | x <- (Map.elems transition)]
   where (Just transition) = Map.lookup state transitions
+        (Just stateEq) = Map.lookup state eqClasses
 
 
-getStatesMap :: [Int] -> Map.Map Int (Map.Map Char Int) -> [Int] -> Map.Map [Int] [Int]
+getStatesMap :: [Int] -> Map.Map Int (Map.Map Char Int) -> Map.Map Int Int -> Map.Map [Int] [Int]
 getStatesMap [] transitions eqClasses = Map.empty
 getStatesMap (x:xs) transitions eqClasses = Map.insertWith (++) stateId [x] (getStatesMap xs transitions eqClasses)
   where stateId = getStateId x transitions eqClasses
@@ -38,8 +40,8 @@ getEqClass statesMap state = eqClass
         (Just eqClass) = List.elemIndex (head [x | x <- eqStates, elem state x]) eqStates
 
 
-getNextEqClasses :: Automata -> Map.Map Int Int -> [Int]
-getNextEqClasses automata eqClasses = map (getEqClass statesMap) states'
+getNextEqClasses :: Automata -> Map.Map Int Int -> Map.Map Int Int
+getNextEqClasses automata eqClasses = Map.fromList([(x, getEqClass statesMap x) | x <- states'])
   where states' = states automata
         transitions' = transitions automata
         statesMap = getStatesMap states' transitions' eqClasses
@@ -47,31 +49,32 @@ getNextEqClasses automata eqClasses = map (getEqClass statesMap) states'
 
 getFinalEqClasses :: Automata -> Map.Map Int Int -> Map.Map Int Int
 getFinalEqClasses automata eqClasses
-  | nextEqClasses == eqClasses = eqClasses
+  | List.sort (Map.elems nextEqClasses) == List.sort (Map.elems eqClasses) = eqClasses
   | otherwise = getFinalEqClasses automata nextEqClasses
   where nextEqClasses = getNextEqClasses automata eqClasses
 
 
-getFinalStates :: [Int] -> [Int]
-getFinalStates eqClasses = unique eqClasses
+getFinalStates :: Map.Map Int Int -> [Int]
+getFinalStates eqClasses = unique $ Map.elems eqClasses
 
 
-getFinalInitialState :: Int -> [Int] -> Int
-getFinalInitialState initialState eqClasses = eqClasses !! initialState
+getFinalInitialState :: Int -> Map.Map Int Int -> Int
+getFinalInitialState initialState eqClasses = finalInitialState
+  where (Just finalInitialState) = Map.lookup initialState eqClasses
 
 
-getFinalAcceptStates :: [Int] -> [Int] -> [Int]
-getFinalAcceptStates acceptStates eqClasses = unique [eqClasses !! x | x <- acceptStates]
+getFinalAcceptStates :: [Int] -> Map.Map Int Int -> [Int]
+getFinalAcceptStates acceptStates eqClasses = unique $ Maybe.catMaybes [Map.lookup x eqClasses | x <- acceptStates]
 
 
-getFinalTransitions :: Map.Map Int (Map.Map Char Int) -> [Int] -> [Int] -> Map.Map Int (Map.Map Char Int)
+getFinalTransitions :: Map.Map Int (Map.Map Char Int) -> [Int] -> Map.Map Int Int -> Map.Map Int (Map.Map Char Int)
 getFinalTransitions transitions [] eqClasses = Map.empty
-getFinalTransitions transitions (x:xs) eqClasses = Map.insert x transition' (getFinalTransitions transitions xs eqClasses)
+getFinalTransitions transitions (x:xs) eqClasses = Map.insert eqState transition' (getFinalTransitions transitions xs eqClasses)
   where (Just transition) = Map.lookup x transitions
-        transition' = Map.fromList [(fst x, eqClasses !! (snd x)) | x <- Map.toList transition]
+        transition' = Map.fromList $ [(fst x, Maybe.fromJust $ Map.lookup (snd x) eqClasses) | x <- Map.toList transition]
+        (Just eqState) = Map.lookup x eqClasses
 
-
-createMinimizeAutomata :: Automata -> [Int] -> Automata
+createMinimizeAutomata :: Automata -> Map.Map Int Int -> Automata
 createMinimizeAutomata automata eqClasses = Automata { states = finalStates,
                                                        initialState = finalInitialState,
                                                        acceptStates = finalAcceptStates,
@@ -80,7 +83,7 @@ createMinimizeAutomata automata eqClasses = Automata { states = finalStates,
   where finalStates = getFinalStates eqClasses
         finalInitialState = getFinalInitialState (initialState automata) eqClasses
         finalAcceptStates = getFinalAcceptStates (acceptStates automata) eqClasses
-        finalTransitios = getFinalTransitions (transitions automata) finalStates eqClasses
+        finalTransitios = getFinalTransitions (transitions automata) (states automata) eqClasses
 
 
 minimizeAutomata :: Automata -> Automata
