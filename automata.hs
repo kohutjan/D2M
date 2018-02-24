@@ -153,11 +153,29 @@ createAutomata (states':initialState':acceptStates':transitions') =
                    alphabet = getAlphabet transitions'}
 
 
+getShowStateTransition :: Int -> [(Char, Int)] -> String
+getShowStateTransition state [] = ""
+getShowStateTransition state (x:xs) = show state ++ "," ++ [fst x] ++ "," ++ (show (snd x)) ++ "\n" ++ (getShowStateTransition state xs)
+
+
+getShowTransitions :: [(Int, Map.Map Char Int)] -> String
+getShowTransitions [] = "\n"
+getShowTransitions (x:xs) = getShowStateTransition (fst x) (Map.toList(snd x)) ++ getShowTransitions xs
+
+
+showAutomata :: Automata -> String
+showAutomata automata = showStates ++ showInitialState ++ showAcceptStates ++ showTransitions
+  where showStates = (tail (init (show (states automata)))) ++ "\n"
+        showInitialState = (show (initialState automata)) ++ "\n"
+        showAcceptStates = (tail (init (show (acceptStates automata)))) ++ "\n"
+        showTransitions = getShowTransitions $ Map.toList (transitions automata)
+
+
 load :: String -> IO ()
 load path = do
             content <- readFile path
             let automata = createAutomata (lines content)
-            print $ minimizeAutomata (if isComplete automata then automata else completeAutomata automata)
+            putStr $ showAutomata (minimizeAutomata (if isComplete automata then automata else completeAutomata automata))
 
 parseArgs :: [String] -> (String -> IO ())
 parseArgs args
