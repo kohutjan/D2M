@@ -112,7 +112,7 @@ completeAutomata automata = Automata { states = (states automata) ++ [sinkState]
         sinkStateTransition = Map.fromList([(x, sinkState) | x <- Set.toList(alphabet automata)])
         states' = states automata
         transitions' = transitions automata
-        missingStates = [x | x <- states', not $ elem x (Map.keys transitions')]
+        missingStates = [x | x <- states', not $ elem x (Map.keys transitions'), elem x $ concat $ (map Map.elems (Map.elems transitions'))]
         completedTransitions = completeTransitions missingStates transitions'
         completedStatesTransitions = Map.map (completeStateTransition (alphabet automata) sinkState) completedTransitions
 
@@ -132,16 +132,18 @@ getStates states' = read $ '[':states' ++ [']'] :: [Int]
 getTransitions :: [String] -> Map.Map Int (Map.Map Char Int)
 getTransitions [] = Map.empty
 getTransitions (x:xs) = Map.insertWith Map.union startState transition (getTransitions xs)
-  where startState = Char.digitToInt $ head x :: Int
-        transitionChar = x !! 2
-        finalState = Char.digitToInt $ last x :: Int
+  where (Just firstCommaIndex) = List.elemIndex ',' x
+        startState =  read $ take firstCommaIndex x :: Int
+        transitionChar = x !! (firstCommaIndex + 1)
+        finalState = read $ drop (firstCommaIndex + 3) x :: Int
         transition = Map.singleton transitionChar finalState
 
 
 getAlphabet :: [String] -> Set.Set Char
 getAlphabet [] = Set.empty
 getAlphabet (x:xs) = Set.insert transitionChar (getAlphabet xs)
-  where transitionChar = x !! 2
+  where (Just firstCommaIndex) = List.elemIndex ',' x
+        transitionChar = x !! (firstCommaIndex + 1)
 
 
 createAutomata :: [String] -> Automata
@@ -175,11 +177,14 @@ load :: String -> IO ()
 load path = do
             content <- readFile path
             let automata = createAutomata (lines content)
-            putStr $ showAutomata (minimizeAutomata (if isComplete automata then automata else completeAutomata automata))
+            let mini = minimizeAutomata (if isComplete automata then automata else completeAutomata automata)
+            putStr $ showAutomata(mini)
+            putStr $ show(mini)
+            putStr "\n\n"
 
 parseArgs :: [String] -> (String -> IO ())
 parseArgs args
-          | elem "-i" args = load
+          | elem "-t" args = load
           | otherwise = error "No arguments"
 
 
@@ -187,4 +192,4 @@ main = do
   args <- getArgs
   (parseArgs args) (last args)
   contents <- readFile (last args)
-  putStr contents
+  putStr "\n"
