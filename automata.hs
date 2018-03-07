@@ -14,37 +14,114 @@ data Automata = Automata { states :: [Int],
                            alphabet :: Set.Set Char
                           } deriving (Show)
 
-unique :: [Int] -> [Int]
-unique l = Set.toList $ Set.fromList l
+main = do
+       args <- getArgs
+       let filePath = last args
+       let proccesFunc = getProcessFunc args
+       loadAutomata filePath proccesFunc
 
 
-getStateId :: Int -> Map.Map Int (Map.Map Char Int) -> Map.Map Int Int -> [Int]
-getStateId state transitions eqClasses = stateEq : Maybe.catMaybes [Map.lookup x eqClasses | x <- (Map.elems transition)]
-  where (Just transition) = Map.lookup state transitions
-        (Just stateEq) = Map.lookup state eqClasses
+getProcessFunc :: [String] -> ([String] -> Automata)
+getProcessFunc args
+              | elem "-i" args = createAutomata
+              | elem "-t" args = minimizeAutomata . completeAutomata . createAutomata
+              | otherwise = error "No arguments"
 
 
-getStatesMap :: [Int] -> Map.Map Int (Map.Map Char Int) -> Map.Map Int Int -> Map.Map [Int] [Int]
-getStatesMap [] transitions eqClasses = Map.empty
-getStatesMap (x:xs) transitions eqClasses = Map.insertWith (++) stateId [x] (getStatesMap xs transitions eqClasses)
-  where stateId = getStateId x transitions eqClasses
+loadAutomata :: String -> ([String] -> Automata) -> IO ()
+loadAutomata path createAutomata = do
+                                   content <- readFile path
+                                   let fileLines = lines content
+                                   let automata = createAutomata fileLines
+                                   putStr $ showAutomata(automata)
+                                   --putStr $ show(automata)
 
 
-initEqClasses :: [Int] -> [Int] -> Map.Map Int Int
-initEqClasses states acceptStates = Map.fromList([if elem x acceptStates then (x, 1) else (x, 0) | x <- states])
+createAutomata :: [String] -> Automata
+createAutomata (states':initialState':acceptStates':transitions') =
+       Automata { states = readStates states',
+                  initialState = read initialState' :: Int,
+                  acceptStates = readStates acceptStates',
+                  transitions = readTransitions transitions',
+                  alphabet = readAlphabet transitions' }
 
 
-getEqClass :: Map.Map [Int] [Int] -> Int -> Int
-getEqClass statesMap state = eqClass
-  where eqStates = Map.elems statesMap
-        eqClass = minimum (head [x | x <- eqStates, elem state x])
+readStates :: String -> [Int]
+readStates states' = read $ '[':states' ++ [']'] :: [Int]
 
 
-getNextEqClasses :: Automata -> Map.Map Int Int -> Map.Map Int Int
-getNextEqClasses automata eqClasses = Map.fromList([(x, getEqClass statesMap x) | x <- states'])
-  where states' = states automata
+readTransitions :: [String] -> Map.Map Int (Map.Map Char Int)
+readTransitions [] = Map.empty
+readTransitions (line:fileLines) = Map.insertWith Map.union startState charTransition (readTransitions fileLines)
+  where (Just firstCommaIndex) = List.elemIndex ',' line
+        startState =  read $ take firstCommaIndex line :: Int
+        transitionChar = line !! (firstCommaIndex + 1)
+        finalState = read $ drop (firstCommaIndex + 3) line :: Int
+        charTransition = Map.singleton transitionChar finalState
+
+
+readAlphabet :: [String] -> Set.Set Char
+readAlphabet [] = Set.empty
+readAlphabet (line:fileLines) = Set.insert transitionChar (readAlphabet fileLines)
+  where (Just firstCommaIndex) = List.elemIndex ',' line
+        transitionChar = line !! (firstCommaIndex + 1)
+
+
+completeAutomata :: Automata -> Automata
+completeAutomata automata = if isComplete automata
+                            then automata
+                            else Automata { states = (states automata) ++ [sinkState],
+                                            initialState = initialState automata,
+                                            acceptStates = acceptStates automata,
+                                            transitions = transitionsWithSink,
+                                            alphabet = alphabet automata}
+  where sinkState = maximum (states automata) + 1
+        sinkStateTransition = Map.fromList([(transitionChar, sinkState) | transitionChar <- Set.toList(alphabet automata)])
+        states' = states automata
         transitions' = transitions automata
-        statesMap = getStatesMap states' transitions' eqClasses
+        alphabet' = alphabet automata
+        missingStartStates = [state | state <- states',
+                                      not $ elem state (Map.keys transitions'),
+                                      elem state $ concat $ (map Map.elems (Map.elems transitions'))]
+        transitionsWithMissingStartStates = addStartStatesToTransitions missingStartStates transitions'
+        completedStateTransitions = Map.map (completeStateTransition alphabet' sinkState) transitionsWithMissingStartStates
+        transitionsWithSink = Map.insert sinkState sinkStateTransition completedStateTransitions
+
+
+isComplete :: Automata -> Bool
+isComplete automata = definedStartStates && definedStateTransitions
+  where alphabetLength = length (alphabet automata)
+        transitions' = transitions automata
+        states' = states automata
+        definedStartStates = (Map.size transitions') == (length states')
+        stateTransitionsSizes = map Map.size (Map.elems transitions')
+        definedStateTransitions = not $ elem False [stateTransitionSize == alphabetLength | stateTransitionSize <- stateTransitionsSizes]
+
+
+addStartStatesToTransitions :: [Int] -> Map.Map Int (Map.Map Char Int) -> Map.Map Int (Map.Map Char Int)
+addStartStatesToTransitions [] transitions = transitions
+addStartStatesToTransitions (state:states) transitions = addStartStatesToTransitions states (Map.insert state Map.empty transitions)
+
+
+completeStateTransition ::  Set.Set Char -> Int -> Map.Map Char Int -> Map.Map Char Int
+completeStateTransition alphabet sinkState state = Map.union state missingCharTransitions
+  where missingCharTransitions = Map.fromList([(transitionChar, sinkState) | transitionChar <- Set.toList(alphabet),
+                                                                             not $ elem transitionChar (Map.keys state)])
+
+minimizeAutomata :: Automata -> Automata
+minimizeAutomata automata = createMinimizeAutomata automata finalEqClasses
+  where states' = states automata
+        acceptStates' = acceptStates automata
+        initEqClasses = getInitEqClasses states' acceptStates'
+        finalEqClasses = getFinalEqClasses automata initEqClasses
+
+
+getInitEqClasses :: [Int] -> [Int] -> Map.Map Int Int
+getInitEqClasses states acceptStates = Map.fromList([if elem x acceptStates
+                                                     then (x, acceptStatesMin)
+                                                     else (x, nonacceptStatesMin) | x <- states])
+  where acceptStatesMin = minimum acceptStates
+        nonacceptStatesMin = minimum [x | x <- states, not $ elem x acceptStates]
 
 
 getFinalEqClasses :: Automata -> Map.Map Int Int -> Map.Map Int Int
@@ -54,25 +131,31 @@ getFinalEqClasses automata eqClasses
   where nextEqClasses = getNextEqClasses automata eqClasses
 
 
-getFinalStates :: Map.Map Int Int -> [Int]
-getFinalStates eqClasses = unique $ Map.elems eqClasses
+getNextEqClasses :: Automata -> Map.Map Int Int -> Map.Map Int Int
+getNextEqClasses automata eqClasses = Map.fromList([(state, getEqClass statesTable state) | state <- states'])
+  where states' = states automata
+        transitions' = transitions automata
+        statesTable = getStatesTable states' transitions' eqClasses
 
 
-getFinalInitialState :: Int -> Map.Map Int Int -> Int
-getFinalInitialState initialState eqClasses = finalInitialState
-  where (Just finalInitialState) = Map.lookup initialState eqClasses
+getStatesTable :: [Int] -> Map.Map Int (Map.Map Char Int) -> Map.Map Int Int -> Map.Map [Int] [Int]
+getStatesTable [] transitions eqClasses = Map.empty
+getStatesTable (state:states) transitions eqClasses = Map.insertWith (++) eqClassIdForState [state] (getStatesTable states transitions eqClasses)
+  where eqClassIdForState = getEqClassIdForState state transitions eqClasses
 
 
-getFinalAcceptStates :: [Int] -> Map.Map Int Int -> [Int]
-getFinalAcceptStates acceptStates eqClasses = unique $ Maybe.catMaybes [Map.lookup x eqClasses | x <- acceptStates]
+getEqClassIdForState :: Int -> Map.Map Int (Map.Map Char Int) -> Map.Map Int Int -> [Int]
+getEqClassIdForState state transitions eqClasses = actualEqClass : finalEqClassesForState
+  where (Just stateTransition) = Map.lookup state transitions
+        (Just actualEqClass) = Map.lookup state eqClasses
+        finalEqClassesForState = Maybe.catMaybes [Map.lookup finalState eqClasses | finalState <- (Map.elems stateTransition)]
 
 
-getFinalTransitions :: Map.Map Int (Map.Map Char Int) -> [Int] -> Map.Map Int Int -> Map.Map Int (Map.Map Char Int)
-getFinalTransitions transitions [] eqClasses = Map.empty
-getFinalTransitions transitions (x:xs) eqClasses = Map.insert eqState transition' (getFinalTransitions transitions xs eqClasses)
-  where (Just transition) = Map.lookup x transitions
-        transition' = Map.fromList $ [(fst x, Maybe.fromJust $ Map.lookup (snd x) eqClasses) | x <- Map.toList transition]
-        (Just eqState) = Map.lookup x eqClasses
+getEqClass :: Map.Map [Int] [Int] -> Int -> Int
+getEqClass statesMap state = eqClass
+  where eqStatesGroups = Map.elems statesMap
+        eqClass = minimum (head [eqStates | eqStates <- eqStatesGroups, elem state eqStates])
+
 
 createMinimizeAutomata :: Automata -> Map.Map Int Int -> Automata
 createMinimizeAutomata automata eqClasses = Automata { states = finalStates,
@@ -86,110 +169,44 @@ createMinimizeAutomata automata eqClasses = Automata { states = finalStates,
         finalTransitios = getFinalTransitions (transitions automata) (states automata) eqClasses
 
 
-minimizeAutomata :: Automata -> Automata
-minimizeAutomata automata = createMinimizeAutomata automata (getFinalEqClasses automata eqClasses)
-  where states' = states automata
-        acceptStates' = acceptStates automata
-        eqClasses = initEqClasses states' acceptStates'
+getFinalStates :: Map.Map Int Int -> [Int]
+getFinalStates eqClasses = unique $ Map.elems eqClasses
 
 
-completeTransitions :: [Int] -> Map.Map Int (Map.Map Char Int) -> Map.Map Int (Map.Map Char Int)
-completeTransitions [] transitions = transitions
-completeTransitions (x:xs) transitions = completeTransitions xs (Map.insert x Map.empty transitions)
+getFinalInitialState :: Int -> Map.Map Int Int -> Int
+getFinalInitialState initialState eqClasses = finalInitialState
+  where (Just finalInitialState) = Map.lookup initialState eqClasses
 
 
-completeStateTransition ::  Set.Set Char -> Int -> Map.Map Char Int -> Map.Map Char Int
-completeStateTransition alphabet sinkState state = Map.union state (Map.fromList([(x, sinkState) | x <- Set.toList(alphabet), not $ elem x (Map.keys state)]))
+getFinalAcceptStates :: [Int] -> Map.Map Int Int -> [Int]
+getFinalAcceptStates acceptStates eqClasses = unique $ Maybe.catMaybes [Map.lookup acceptState eqClasses | acceptState <- acceptStates]
 
 
-completeAutomata :: Automata -> Automata
-completeAutomata automata = Automata { states = (states automata) ++ [sinkState],
-                                       initialState = initialState automata,
-                                       acceptStates = acceptStates automata,
-                                       transitions = Map.insert sinkState sinkStateTransition completedStatesTransitions,
-                                       alphabet = alphabet automata}
-  where sinkState = maximum (states automata) + 1
-        sinkStateTransition = Map.fromList([(x, sinkState) | x <- Set.toList(alphabet automata)])
-        states' = states automata
-        transitions' = transitions automata
-        missingStates = [x | x <- states', not $ elem x (Map.keys transitions'), elem x $ concat $ (map Map.elems (Map.elems transitions'))]
-        completedTransitions = completeTransitions missingStates transitions'
-        completedStatesTransitions = Map.map (completeStateTransition (alphabet automata) sinkState) completedTransitions
+getFinalTransitions :: Map.Map Int (Map.Map Char Int) -> [Int] -> Map.Map Int Int -> Map.Map Int (Map.Map Char Int)
+getFinalTransitions transitions [] eqClasses = Map.empty
+getFinalTransitions transitions (state:states) eqClasses = Map.insert eqState finalStateTransition (getFinalTransitions transitions states eqClasses)
+  where (Just stateTransition) = Map.lookup state transitions
+        finalStateTransition = Map.fromList $ [(fst charTransition, Maybe.fromJust $ Map.lookup (snd charTransition) eqClasses) | charTransition <- Map.toList stateTransition]
+        (Just eqState) = Map.lookup state eqClasses
 
 
-isComplete :: Automata -> Bool
-isComplete automata = definedStates && (not $ elem False [x == alphabetLength | x <- transitionsSize])
-  where alphabetLength = length (alphabet automata)
-        transitions' = transitions automata
-        transitionsSize = map Map.size (Map.elems transitions')
-        states' = states automata
-        definedStates = (Map.size transitions') == (length states')
-
-getStates :: String -> [Int]
-getStates states' = read $ '[':states' ++ [']'] :: [Int]
-
-
-getTransitions :: [String] -> Map.Map Int (Map.Map Char Int)
-getTransitions [] = Map.empty
-getTransitions (x:xs) = Map.insertWith Map.union startState transition (getTransitions xs)
-  where (Just firstCommaIndex) = List.elemIndex ',' x
-        startState =  read $ take firstCommaIndex x :: Int
-        transitionChar = x !! (firstCommaIndex + 1)
-        finalState = read $ drop (firstCommaIndex + 3) x :: Int
-        transition = Map.singleton transitionChar finalState
-
-
-getAlphabet :: [String] -> Set.Set Char
-getAlphabet [] = Set.empty
-getAlphabet (x:xs) = Set.insert transitionChar (getAlphabet xs)
-  where (Just firstCommaIndex) = List.elemIndex ',' x
-        transitionChar = x !! (firstCommaIndex + 1)
-
-
-createAutomata :: [String] -> Automata
-createAutomata (states':initialState':acceptStates':transitions') =
-        Automata { states = getStates states',
-                   initialState = read initialState' :: Int,
-                   acceptStates = getStates acceptStates',
-                   transitions = getTransitions transitions',
-                   alphabet = getAlphabet transitions'}
-
-
-getShowStateTransition :: Int -> [(Char, Int)] -> String
-getShowStateTransition state [] = ""
-getShowStateTransition state (x:xs) = show state ++ "," ++ [fst x] ++ "," ++ (show (snd x)) ++ "\n" ++ (getShowStateTransition state xs)
-
-
-getShowTransitions :: [(Int, Map.Map Char Int)] -> String
-getShowTransitions [] = "\n"
-getShowTransitions (x:xs) = getShowStateTransition (fst x) (Map.toList(snd x)) ++ getShowTransitions xs
+unique :: [Int] -> [Int]
+unique l = Set.toList $ Set.fromList l
 
 
 showAutomata :: Automata -> String
 showAutomata automata = showStates ++ showInitialState ++ showAcceptStates ++ showTransitions
-  where showStates = (tail (init (show (states automata)))) ++ "\n"
-        showInitialState = (show (initialState automata)) ++ "\n"
-        showAcceptStates = (tail (init (show (acceptStates automata)))) ++ "\n"
-        showTransitions = getShowTransitions $ Map.toList (transitions automata)
+ where showStates = (tail (init (show (states automata)))) ++ "\n"
+       showInitialState = (show (initialState automata)) ++ "\n"
+       showAcceptStates = (tail (init (show (acceptStates automata)))) ++ "\n"
+       showTransitions = getShowTransitions $ Map.toList (transitions automata)
 
 
-load :: String -> IO ()
-load path = do
-            content <- readFile path
-            let automata = createAutomata (lines content)
-            let mini = minimizeAutomata (if isComplete automata then automata else completeAutomata automata)
-            putStr $ showAutomata(mini)
-            putStr $ show(mini)
-            putStr "\n\n"
-
-parseArgs :: [String] -> (String -> IO ())
-parseArgs args
-          | elem "-t" args = load
-          | otherwise = error "No arguments"
+getShowTransitions :: [(Int, Map.Map Char Int)] -> String
+getShowTransitions [] = ""
+getShowTransitions (transition:transitions) = getShowTransition (fst transition) (Map.toList(snd transition)) ++ getShowTransitions transitions
 
 
-main = do
-  args <- getArgs
-  (parseArgs args) (last args)
-  contents <- readFile (last args)
-  putStr "\n"
+getShowTransition :: Int -> [(Char, Int)] -> String
+getShowTransition state [] = ""
+getShowTransition state (charTransition:charTransitions) = show state ++ "," ++ [fst charTransition] ++ "," ++ (show (snd charTransition)) ++ "\n" ++ (getShowTransition state charTransitions)
