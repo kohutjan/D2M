@@ -29,7 +29,9 @@ main = do
        let filePath = if ((not $ null (last args)) && (not $ elem (last args) options))
                       then last args
                       else []
-       let proccesFuncs = getProcessFuncs args
+       let proccesFuncs = if null filePath
+                            then getProcessFuncs args
+                            else getProcessFuncs (init args)
        if null filePath
        then loadAutomatas getContents proccesFuncs
        else loadAutomatas (readFile filePath) proccesFuncs
