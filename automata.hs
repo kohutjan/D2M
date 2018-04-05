@@ -174,7 +174,7 @@ completeAutomata automata = if isComplete automata
 
 isComplete :: Automata -> Bool
 isComplete automata = definedStartStates && definedStateTransitions
-  where alphabetLength = length (alphabet automata)
+  where alphabetLength = Set.size (alphabet automata)
         transitions' = transitions automata
         states' = states automata
         definedStartStates = (Map.size transitions') == (length states')
