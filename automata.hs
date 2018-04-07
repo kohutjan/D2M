@@ -8,10 +8,19 @@ import qualified Data.Maybe as Maybe
 
 type State = Int
 type TransitionChar = Char
+
+{-|
+  Transitions are represented as Map.Map State StateTransition.
+  Every state has it's own StateTransition which represents the
+  transitions from this state.
+-}
 type StateTransition = Map.Map TransitionChar State
 type EqClass = Int
+
+--EqClasses represents mapping of states to theirs current equivalence classes.
 type EqClasses = Map.Map State EqClass
 
+--Automata represetns finite automata
 data Automata = Automata { states :: [State],
                            initialState :: State,
                            acceptStates :: [State],
@@ -20,12 +29,14 @@ data Automata = Automata { states :: [State],
                           } deriving (Show)
 
 
+--Parse arguments
 main = do
        args <- getArgs
        if (not ((elem "-i" args) || (elem "-t" args)))
          then error "Bad arguments"
          else return ()
        let options = ["-i", "-t"]
+       --if last argument is not "-i" or "-t" store file path
        let filePath = if ((not $ null (last args)) && (not $ elem (last args) options))
                       then last args
                       else []
@@ -42,6 +53,7 @@ getProcessFuncs [] = []
 getProcessFuncs (option:args) = (getProcessFunc option) : (getProcessFuncs args)
 
 
+--Return process function for argument type
 getProcessFunc :: String -> ([String] -> Automata)
 getProcessFunc "-i" = createAutomata
 getProcessFunc "-t" = minimizeAutomata . completeAutomata . createAutomata
@@ -52,18 +64,20 @@ loadAutomatas :: IO String -> [([String] -> Automata)] -> IO ()
 loadAutomatas loadMode proccesFuncs = do
                                       content <- loadMode
                                       let fileLines = lines content
-                                      let automatas = processAutomatas proccesFuncs fileLines
+                                      let automatas = processAutomata proccesFuncs fileLines
                                       putStr (concat (map showAutomata automatas))
 
 
-processAutomatas :: [([String] -> Automata)] -> [String] -> [Automata]
-processAutomatas [] _ = []
-processAutomatas (proccesFunc:proccesFuncs) fileLines = (proccesFunc fileLines) :
-                                                        (processAutomatas
-                                                             proccesFuncs
-                                                                fileLines)
+--Apply each process function on automata and return the result as list of strings.
+processAutomata :: [([String] -> Automata)] -> [String] -> [Automata]
+processAutomata [] _ = []
+processAutomata (proccesFunc:proccesFuncs) fileLines = (proccesFunc fileLines) :
+                                                       (processAutomata
+                                                           proccesFuncs
+                                                              fileLines)
 
 
+--Read every part of automata string and create Automata
 createAutomata :: [String] -> Automata
 createAutomata (states':initialState':acceptStates':transitions') = if checkAutomata automata
                                                                       then automata
@@ -76,6 +90,7 @@ createAutomata (states':initialState':acceptStates':transitions') = if checkAuto
 createAutomata _ = error "Bad input"
 
 
+--Read states and check validity
 readStates :: String -> [State]
 readStates states' = [if state < 0
                         then error "Negative state"
@@ -90,6 +105,7 @@ readStates states' = [if state < 0
                          else (fst . head) possibleStates
 
 
+--Read state and check validity
 readState :: String -> State
 readState state = if actualState < 0
                     then error "Negative state"
@@ -103,6 +119,7 @@ readState state = if actualState < 0
                         else error "Bad state"
 
 
+--Read transitions and check validity
 readTransitions :: [String] -> Map.Map State StateTransition
 readTransitions [] = Map.empty
 readTransitions (line:fileLines) = Map.insertWith Map.union startState
@@ -117,6 +134,7 @@ readTransitions (line:fileLines) = Map.insertWith Map.union startState
         charTransition = Map.singleton transitionChar finalState
 
 
+--Read transition char (alphabet character) and check validity
 readTransitionChar :: String -> TransitionChar
 readTransitionChar transitionChar = if Char.isLower actualChar
                                       then actualChar
@@ -126,6 +144,7 @@ readTransitionChar transitionChar = if Char.isLower actualChar
                       else error "Bad alphabet"
 
 
+--Read alphabet, doesn't have to check validity (already done in transitions).
 readAlphabet :: [String] -> Set.Set TransitionChar
 readAlphabet [] = Set.empty
 readAlphabet (line:fileLines) = Set.insert transitionChar (readAlphabet fileLines)
@@ -133,6 +152,7 @@ readAlphabet (line:fileLines) = Set.insert transitionChar (readAlphabet fileLine
         transitionChar = line !! (firstCommaIndex + 1)
 
 
+--Check if states in initial state, acceptance states and transitions corresponds with automata states.
 checkAutomata :: Automata -> Bool
 checkAutomata ( Automata states initialState acceptStates transitions _) =
         correctInitialState && correctAcceptStates && correctTransitions
@@ -151,6 +171,7 @@ checkTransitions transitions states = correctStartStates && correctEndStates
                                             endState <- endStates]
 
 
+--Complete automata if needed.
 completeAutomata :: Automata -> Automata
 completeAutomata automata = if isComplete automata
                             then automata
@@ -197,6 +218,7 @@ completeStateTransition alphabet sinkState state = Map.union state missingCharTr
                                               transitionChar <- Set.toList(alphabet),
                                               not $ elem transitionChar (Map.keys state)])
 
+
 minimizeAutomata :: Automata -> Automata
 minimizeAutomata automata = createMinimizeAutomata automata finalEqClasses
   where states' = states automata
@@ -205,6 +227,7 @@ minimizeAutomata automata = createMinimizeAutomata automata finalEqClasses
         finalEqClasses = getFinalEqClasses automata initEqClasses
 
 
+--States are divided into two groups accept states and nonaccept states
 getInitEqClasses :: [State] -> [State] -> EqClasses
 getInitEqClasses states acceptStates = Map.fromList([if elem x acceptStates
                                                      then (x, acceptStatesMin)
@@ -214,6 +237,7 @@ getInitEqClasses states acceptStates = Map.fromList([if elem x acceptStates
         nonacceptStatesMin = minimum [x | x <- states, not $ elem x acceptStates]
 
 
+--If next equivalence classes are the same return them otherwise get next
 getFinalEqClasses :: Automata -> EqClasses -> EqClasses
 getFinalEqClasses automata eqClasses
   | List.sort (Map.elems nextEqClasses) == List.sort (Map.elems eqClasses) = eqClasses
@@ -229,6 +253,13 @@ getNextEqClasses automata eqClasses = Map.fromList([(state, getEqClass statesTab
         statesTable = getStatesTable states' transitions' eqClasses
 
 
+{-|
+  Table represents transitions between equivalence classes.
+  Key is list of equivalence classes, first element is actual equivalence class
+  (from previous iteration) and the others are equivalence class after transition.
+  This list represents new equivalence class (equivalence class id).
+  Elem is list of states that belong to equivalence class represented by key.
+-}
 getStatesTable :: [State] -> Map.Map State StateTransition -> EqClasses -> Map.Map [EqClass] [State]
 getStatesTable [] transitions eqClasses = Map.empty
 getStatesTable (state:states) transitions eqClasses =
@@ -236,6 +267,7 @@ getStatesTable (state:states) transitions eqClasses =
   where eqClassIdForState = getEqClassIdForState state transitions eqClasses
 
 
+--States are guaranted to be found (no undefined states are present).
 getEqClassIdForState :: State -> Map.Map State StateTransition -> EqClasses -> [EqClass]
 getEqClassIdForState state transitions eqClasses = actualEqClass : finalEqClassesForState
   where (Just stateTransition) = Map.lookup state transitions
@@ -244,12 +276,15 @@ getEqClassIdForState state transitions eqClasses = actualEqClass : finalEqClasse
                                                   finalState <- (Map.elems stateTransition)]
 
 
+--Extract equivalence class from table.
 getEqClass :: Map.Map [EqClass] [State] -> Int -> Int
 getEqClass statesTable state = eqClass
   where eqStatesGroups = Map.elems statesTable
+        --Equivalence class is represented by equivalent state with minimum value.
         eqClass = minimum (head [eqStates | eqStates <- eqStatesGroups, elem state eqStates])
 
 
+--Create minimize automata using equivalence classes.
 createMinimizeAutomata :: Automata -> EqClasses -> Automata
 createMinimizeAutomata automata eqClasses = Automata { states = finalStates,
                                                        initialState = finalInitialState,
