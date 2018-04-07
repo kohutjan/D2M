@@ -19,3 +19,7 @@ Kromě chování popsaného v zadání, program reaguje i na zadání obou argum
 (-i a -t). Program vypíše automaty v pořadí, v jakém byly zadány argumenty
 oděleny novým řádkem. Tzn. -t -i automat.txt vypíše nejprve minimální verzi
 automatu a poté vnitřní reprezentaci automatu.
+
+Testovací vstupy:
+Ve složce test_automata přikládám 4 jednoduché automaty, u kterých jsem si
+"ručně" ověřil správnost.
