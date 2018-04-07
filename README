@@ -1,0 +1,21 @@
+Projekt používá následující knihovny:
+import System.IO
+System.Environment
+Data.Map, Data.Set, Data.Char, Data.List, Data.Maybe
+
+Implementace:
+Algoritmus na minimalizaci konečného automatu je implementován podle přednášky
+Převody regulárních výrazů a minimalizace konečných automatů 2017/2018 předmětu
+TIN (slide 33). Hledání nových ekvivalentních tříd je zajištěno pomocí tabulky,
+tak jak je naznačeno na slidu 34 a 35.
+
+Reperezentace ekvivalentní třídy:
+Ekvivalentní třída je reprezentována stavem, který má nejmenší (minimální)
+hondotu v rámci dané třídy. Tzn. pokud třída obsahuje stavy 0, 1, 8 bude
+reprezentována číslem 0.
+
+Argumenty:
+Kromě chování popsaného v zadání, program reaguje i na zadání obou argumentů
+(-i a -t). Program vypíše automaty v pořadí, v jakém byly zadány argumenty
+oděleny novým řádkem. Tzn. -t -i automat.txt vypíše nejprve minimální verzi
+automatu a poté vnitřní reprezentaci automatu.

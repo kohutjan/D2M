@@ -1,3 +1,10 @@
+{-|
+  project: DKA-2-MKA
+  login: xkohut08
+  name: Jan Kohút
+  date: 7. 4. 2018
+-}
+
 import System.IO
 import System.Environment
 import qualified Data.Map as Map
@@ -65,7 +72,7 @@ loadAutomatas loadMode proccesFuncs = do
                                       content <- loadMode
                                       let fileLines = lines content
                                       let automatas = processAutomata proccesFuncs fileLines
-                                      putStr (concat (map showAutomata automatas))
+                                      putStr (List.intercalate "\n" (map showAutomata automatas))
 
 
 --Apply each process function on automata and return the result as list of strings.
@@ -254,7 +261,8 @@ getNextEqClasses automata eqClasses = Map.fromList([(state, getEqClass statesTab
 
 
 {-|
-  Table represents transitions between equivalence classes.
+  Table represents new equivalence classes based on transitions between previous
+  equivalence classes.
   Key is list of equivalence classes, first element is actual equivalence class
   (from previous iteration) and the others are equivalence class after transition.
   This list represents new equivalence class (equivalence class id).
@@ -267,7 +275,7 @@ getStatesTable (state:states) transitions eqClasses =
   where eqClassIdForState = getEqClassIdForState state transitions eqClasses
 
 
---States are guaranted to be found (no undefined states are present).
+--States are guaranteed to be found (no undefined states are present).
 getEqClassIdForState :: State -> Map.Map State StateTransition -> EqClasses -> [EqClass]
 getEqClassIdForState state transitions eqClasses = actualEqClass : finalEqClassesForState
   where (Just stateTransition) = Map.lookup state transitions
@@ -326,6 +334,7 @@ unique :: [Int] -> [Int]
 unique l = Set.toList $ Set.fromList l
 
 
+--Convert Automata to string representation
 showAutomata :: Automata -> String
 showAutomata automata = showStates ++ showInitialState ++ showAcceptStates ++ showTransitions
  where showStates = (tail (init (show (states automata)))) ++ "\n"
